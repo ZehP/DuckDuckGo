@@ -1,25 +1,24 @@
-module.exports = function(grunt) {
+module.exports = function (grunt) {
     const through = require('through2')
     require('load-grunt-tasks')(grunt)
     grunt.loadNpmTasks('grunt-execute')
     grunt.loadNpmTasks('grunt-karma')
 
-    var values = require('object.values');
+    var values = require('object.values')
 
-    if(!Object.values) {
+    if (!Object.values) {
         values.shim()
     }
 
     let browser = grunt.option('browser')
     let buildType = grunt.option('type')
 
-    if(!(browser && buildType)) {
-        console.error("Missing browser or  build type: --browser=<browser-name> --type=<dev,release>")
+    if (!(browser && buildType)) {
+        console.error('Missing browser or  build type: --browser=<browser-name> --type=<dev,release>')
         process.exit(1)
     }
 
     let buildPath = `build/${browser}/${buildType}`
-
 
     /* These are files common to all browsers. To add or override any of these files
      * see the browserMap object below */
@@ -58,14 +57,16 @@ module.exports = function(grunt) {
     /* watch any base files and browser specific files */
     let watch = {
         sass: ['<%= dirs.src.scss %>/**/*.scss'],
-        ui: ['<%= dirs.src.js %>/ui/**/*.es6.js','<%= dirs.data %>/*.js'],
-        background: ['<%= dirs.src.js %>/background/**/*.js','<%= dirs.data %>/*.js']
+        ui: ['<%= dirs.src.js %>/ui/**/*.es6.js', '<%= dirs.data %>/*.js'],
+        background: ['<%= dirs.src.js %>/background/**/*.js', '<%= dirs.data %>/*.js'],
+        contentScripts: ['<%= dirs.src.js %>/content-scripts/*.js'],
+        data: ['<%= dirs.data %>/*.js']
     }
 
     let karmaOps = {
         configFile: 'karma.conf.js',
         basePath: 'build/test/',
-        files: ['background.js','ui.js','shared-utils.js']
+        files: ['background.js', 'ui.js', 'shared-utils.js']
     }
 
     // override some options to allow the devs
@@ -112,12 +113,11 @@ module.exports = function(grunt) {
                 transform: [
                     ['babelify'],
                     [(file) => {
-                        return through( function(buf, enc, next) {
+                        return through(function (buf, enc, next) {
                             let requireName = browser
-                            if(browser === 'duckduckgo.safariextension') {
+                            if (browser === 'duckduckgo.safariextension') {
                                 requireName = 'safari'
-                            }
-                            else if (browser === 'firefox') {
+                            } else if (browser === 'firefox') {
                                 requireName = 'chrome'
                             }
                             this.push(buf.toString('utf8').replace(/\$BROWSER/g, requireName))
@@ -156,15 +156,20 @@ module.exports = function(grunt) {
                 src: ['scripts/buildEntityMap.js']
             },
             tosdr: {
-                src: []//'scripts/tosdr.js']
+                src: []// 'scripts/tosdr.js']
             }
         },
 
         // used by watch to copy shared/js to build dir
         exec: {
             copyjs: `cp shared/js/*.js build/${browser}/${buildType}/js/ && rm build/${browser}/${buildType}/js/*.es6.js`,
-            tmpSafari: `mv build/${browser}/${buildType} build/${browser}/tmp && mkdir -p build/${browser}/${buildType}/`, 
-            mvSafari: `mv build/${browser}/tmp build/${browser}/${buildType}/ && mv build/${browser}/${buildType}/tmp build/${browser}/${buildType}/${browser}`, 
+            copyContentScripts: `cp shared/js/content-scripts/*.js build/${browser}/${buildType}/public/js/content-scripts/`,
+            copyData: `cp -r shared/data build/${browser}/${buildType}/`,
+            // replace `/* __ */ 'https://duckduckgo.com' /* __ */` in content-scripts/onboarding.js for local dev
+            // make sure that sed works on both linux and OSX (see https://stackoverflow.com/questions/5694228/sed-in-place-flag-that-works-both-on-mac-bsd-and-linux)
+            devifyOnboarding: `sed -i.bak "s/\\/\\* __ \\*\\/ 'https:\\/\\/duckduckgo\\.com' \\/\\* __ \\*\\//'*'/" build/${browser}/${buildType}/public/js/content-scripts/onboarding.js && rm build/${browser}/${buildType}/public/js/content-scripts/onboarding.js.bak`,
+            tmpSafari: `mv build/${browser}/${buildType} build/${browser}/tmp && mkdir -p build/${browser}/${buildType}/`,
+            mvSafari: `mv build/${browser}/tmp build/${browser}/${buildType}/ && mv build/${browser}/${buildType}/tmp build/${browser}/${buildType}/${browser}`,
             mvWatchSafari: `rsync -ar build/${browser}/${buildType}/public build/${browser}/${buildType}/${browser}/ && rm -rf build/${browser}/${buildType}/public`
         },
 
@@ -174,9 +179,8 @@ module.exports = function(grunt) {
                 tasks: ['sass']
             },
             ui: {
-                files: watch.ui, 
-                tasks: ['browserify:ui', 'watchSafari']
-
+                files: watch.ui,
+                tasks: ['browserify:ui', 'watchSafari', 'exec:copyData']
             },
             backgroundES6JS: {
                 files: watch.background,
@@ -185,6 +189,14 @@ module.exports = function(grunt) {
             backgroundJS: {
                 files: ['<%= dirs.src.js %>/*.js'],
                 tasks: ['exec:copyjs', 'watchSafari']
+            },
+            contentScripts: {
+                files: watch.contentScripts,
+                tasks: ['exec:copyContentScripts', 'exec:devifyOnboarding']
+            },
+            data: {
+                files: watch.data,
+                tasks: ['exec:copyData']
             }
         },
 
@@ -197,27 +209,27 @@ module.exports = function(grunt) {
 
     // sets up safari directory structure so that it can be loaded in extension builder
     // duckduckgo.safariextension -> build type -> duckduckgo.safariextension -> build files
-    grunt.registerTask('safari', 'Move Safari build', (() => {
+    grunt.registerTask('safari', 'Move Safari build', () => {
         if (browser === 'duckduckgo.safariextension') {
-            console.log("Moving Safari build")
+            console.log('Moving Safari build')
             grunt.task.run('exec:tmpSafari')
             grunt.task.run('exec:mvSafari')
         }
-    }))
+    })
 
     // moves generated files from watch into the correct build directory
-    grunt.registerTask('watchSafari', 'Moves Safari files after watch', (() => {
+    grunt.registerTask('watchSafari', 'Moves Safari files after watch', () => {
         if (browser === 'duckduckgo.safariextension') {
             grunt.task.run('exec:mvWatchSafari')
         }
-    }))
+    })
 
     grunt.registerTask('build', 'Build project(s)css, templates, js', ['sass', 'browserify:ui', 'browserify:background', 'browserify:backgroundTest', 'execute:preProcessLists', 'safari'])
 
-    const devTasks = ['build']
+    const devTasks = ['build', 'exec:devifyOnboarding']
     if (grunt.option('watch')) { devTasks.push('watch') }
 
     grunt.registerTask('dev', 'Build and optionally watch files for development', devTasks)
-    grunt.registerTask('test','Build and run tests', ['browserify:unitTest','karma'])
+    grunt.registerTask('test', 'Build and run tests', ['browserify:unitTest', 'karma'])
     grunt.registerTask('default', 'build')
 }

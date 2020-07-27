@@ -6,11 +6,20 @@
  */
 const ATB = require('./atb.es6')
 const utils = require('./utils.es6')
+const experiment = require('./experiments.es6')
+const browser = utils.getBrowserName()
 
 chrome.runtime.onInstalled.addListener(function (details) {
     if (details.reason.match(/install/)) {
         ATB.updateATBValues()
             .then(ATB.openPostInstallPage)
+            .then(function () {
+                if (browser === 'chrome') {
+                    experiment.setActiveExperiment()
+                }
+            })
+    } else if (details.reason.match(/update/) && browser === 'chrome') {
+        experiment.setActiveExperiment()
     }
 })
 
@@ -37,7 +46,7 @@ chrome.webRequest.onBeforeRequest.addListener(
 )
 
 chrome.webRequest.onHeadersReceived.addListener(
-    (request) => {
+    request => {
         if (request.type === 'main_frame') {
             tabManager.updateTabUrl(request)
         }
@@ -52,24 +61,25 @@ chrome.webRequest.onHeadersReceived.addListener(
     }
 )
 
+/**
+ * Web Navigation
+ */
 // keep track of URLs that the browser navigates to.
 //
 // this is currently meant to supplement tabManager.updateTabUrl() above:
 // tabManager.updateTabUrl only fires when a tab has finished loading with a 200,
 // which misses a couple of edge cases like browser special pages
 // and Gmail's weird redirect which returns a 200 via a service worker
-chrome.webNavigation.onCommitted.addListener(
-    (details) => {
-        // ignore navigation on iframes
-        if (details.frameId !== 0) return
+chrome.webNavigation.onCommitted.addListener(details => {
+    // ignore navigation on iframes
+    if (details.frameId !== 0) return
 
-        const tab = tabManager.get({tabId: details.tabId})
+    const tab = tabManager.get({ tabId: details.tabId })
 
-        if (!tab) return
+    if (!tab) return
 
-        tab.updateSite(details.url)
-    }
-)
+    tab.updateSite(details.url)
+})
 
 /**
  * TABS
@@ -92,14 +102,13 @@ chrome.tabs.onRemoved.addListener((id, info) => {
 })
 
 // message popup to close when the active tab changes. this can send an error message when the popup is not open. check lastError to hide it
-chrome.tabs.onActivated.addListener(() => chrome.runtime.sendMessage({closePopup: true}, () => chrome.runtime.lastError))
+chrome.tabs.onActivated.addListener(() => chrome.runtime.sendMessage({ closePopup: true }, () => chrome.runtime.lastError))
 
 // search via omnibox
-
 chrome.omnibox.onInputEntered.addListener(function (text) {
     chrome.tabs.query({
-        'currentWindow': true,
-        'active': true
+        currentWindow: true,
+        active: true
     }, function (tabs) {
         chrome.tabs.update(tabs[0].id, {
             url: 'https://duckduckgo.com/?q=' + encodeURIComponent(text) + '&bext=' + localStorage['os'] + 'cl'
@@ -120,7 +129,7 @@ chrome.runtime.onMessage.addListener((req, sender, res) => {
     if (sender.id !== chrome.runtime.id) return
 
     if (req.getCurrentTab) {
-        utils.getCurrentTab().then((tab) => {
+        utils.getCurrentTab().then(tab => {
             res(tab)
         })
 
@@ -168,10 +177,10 @@ chrome.runtime.onMessage.addListener((req, sender, res) => {
     } else if (req.whitelistOptIn) {
         tabManager.setGlobalWhitelist('whitelistOptIn', req.whitelistOptIn.domain, req.whitelistOptIn.value)
     } else if (req.getTab) {
-        res(tabManager.get({'tabId': req.getTab}))
+        res(tabManager.get({ tabId: req.getTab }))
         return true
     } else if (req.getSiteGrade) {
-        const tab = tabManager.get({tabId: req.getSiteGrade})
+        const tab = tabManager.get({ tabId: req.getSiteGrade })
         let grade = {}
 
         if (!tab.site.specialDomainName) {
@@ -193,6 +202,47 @@ chrome.runtime.onMessage.addListener((req, sender, res) => {
 })
 
 /**
+ * Fingerprint Protection
+ */
+
+// Inject fingerprint protection into sites when
+// they are not whitelisted.
+chrome.webNavigation.onCommitted.addListener(details => {
+    const activeExperiment = settings.getSetting('activeExperiment')
+
+    if (activeExperiment) {
+        const experiment = settings.getSetting('experimentData')
+
+        if (experiment && experiment.fingerprint_protection) {
+            const whitelisted = settings.getSetting('whitelisted')
+            const tabURL = new URL(details.url) || {}
+            if (!whitelisted || !whitelisted[tabURL.hostname]) {
+                const scriptDetails = {
+                    'file': '/data/fingerprint-protection.js',
+                    'runAt': 'document_start',
+                    'allFrames': true,
+                    'matchAboutBlank': true
+                }
+                chrome.tabs.executeScript(details.tabId, scriptDetails)
+            }
+        }
+    }
+})
+
+// Remove DNT header if set, to match other anti-fingerprinting
+// api results.
+chrome.webRequest.onBeforeSendHeaders.addListener(
+    function filterDNTHeader (e) {
+        if (e.requestHeaders) {
+            const requestHeaders = e.requestHeaders.filter(header => header.name.toLowerCase() !== 'dnt')
+            return {requestHeaders: requestHeaders}
+        }
+    },
+    {urls: ['<all_urls>']},
+    ['blocking', 'requestHeaders']
+)
+
+/**
  * ALARMS
  */
 
@@ -202,13 +252,13 @@ const tdsStorage = require('./storage/tds.es6')
 const trackers = require('./trackers.es6')
 
 // recheck tracker and https lists every 12 hrs
-chrome.alarms.create('updateHTTPSLists', {periodInMinutes: 12 * 60})
+chrome.alarms.create('updateHTTPSLists', { periodInMinutes: 12 * 60 })
 // tracker lists / whitelists are 30 minutes
-chrome.alarms.create('updateLists', {periodInMinutes: 30})
+chrome.alarms.create('updateLists', { periodInMinutes: 30 })
 // update uninstall URL every 10 minutes
-chrome.alarms.create('updateUninstallURL', {periodInMinutes: 10})
+chrome.alarms.create('updateUninstallURL', { periodInMinutes: 10 })
 // remove expired HTTPS service entries
-chrome.alarms.create('clearExpiredHTTPSServiceCache', {periodInMinutes: 60})
+chrome.alarms.create('clearExpiredHTTPSServiceCache', { periodInMinutes: 60 })
 
 chrome.alarms.onAlarm.addListener(alarmEvent => {
     if (alarmEvent.name === 'updateHTTPSLists') {
@@ -236,7 +286,7 @@ chrome.alarms.onAlarm.addListener(alarmEvent => {
  * on start up
  */
 let onStartup = () => {
-    chrome.tabs.query({currentWindow: true, status: 'complete'}, function (savedTabs) {
+    chrome.tabs.query({ currentWindow: true, status: 'complete' }, function (savedTabs) {
         for (var i = 0; i < savedTabs.length; i++) {
             var tab = savedTabs[i]
 
@@ -247,6 +297,8 @@ let onStartup = () => {
     })
 
     settings.ready().then(() => {
+        experiment.setActiveExperiment()
+
         httpsStorage.getLists(constants.httpsLists)
             .then(lists => https.setLists(lists))
             .catch(e => console.log(e))
@@ -262,10 +314,10 @@ let onStartup = () => {
 }
 
 // Fire pixel on https upgrade failures to allow bad data to be removed from lists
-chrome.webRequest.onErrorOccurred.addListener((e) => {
+chrome.webRequest.onErrorOccurred.addListener(e => {
     if (!(e.type === 'main_frame')) return
 
-    let tab = tabManager.get({tabId: e.tabId})
+    let tab = tabManager.get({ tabId: e.tabId })
 
     // We're only looking at failed main_frame upgrades. A tab can send multiple
     // main_frame request errors so we will only look at the first one then set tab.hasHttpsError.
@@ -281,12 +333,12 @@ chrome.webRequest.onErrorOccurred.addListener((e) => {
             https.incrementUpgradeCount('failedUpgrades')
             const url = new URL(e.url)
             pixel.fire('ehd', {
-                'url': `${encodeURIComponent(url.hostname)}`,
-                'error': errCode
+                url: `${encodeURIComponent(url.hostname)}`,
+                error: errCode
             })
         }
     }
-}, {urls: ['<all_urls>']})
+}, { urls: ['<all_urls>'] })
 
 module.exports = {
     onStartup: onStartup

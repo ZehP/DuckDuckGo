@@ -42,8 +42,7 @@ module.exports = function () {
         </li>
         <li class="site-info__li--toggle padded ${this.model.isWhitelisted ? '' : 'is-active'}">
             <h2 class="is-transparent site-info__whitelist-status js-site-whitelist-status">
-                <span class="icon ${setTransitionIcon(!this.model.isWhitelisted)}"></span>
-                <span class="text-line-after-icon">
+                <span class="text-line-after-icon privacy-on-off-message">
                     ${setTransitionText(!this.model.isWhitelisted)}
                 </span>
             </h2>
@@ -76,26 +75,14 @@ module.exports = function () {
     </ul>
 </section>`
 
-    function setTransitionIcon (isSiteWhitelisted) {
-        isSiteWhitelisted = isSiteWhitelisted || false
-        let icon = 'icon__check'
-
-        if (isSiteWhitelisted) {
-            icon = 'icon__shield'
-        }
-
-        return icon
-    }
-
     function setTransitionText (isSiteWhitelisted) {
         isSiteWhitelisted = isSiteWhitelisted || false
-        let text = 'Added to '
+        let text = 'Added to Unprotected Sites'
 
         if (isSiteWhitelisted) {
-            text = 'Removed From '
+            text = 'Removed from Unprotected Sites'
         }
 
-        text += 'Whitelist'
         return text
     }
 
@@ -113,7 +100,7 @@ module.exports = function () {
     function renderManageWhitelist (model) {
         return bel`<div>
     <a href="javascript:void(0)" class="js-site-manage-whitelist site-info__manage-whitelist link-secondary bold">
-        Manage Whitelist
+        Unprotected Sites
     </a>
     <div class="separator"></div>
     <a href="javascript:void(0)" class="js-site-report-broken site-info__report-broken link-secondary bold">
