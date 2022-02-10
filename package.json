@@ -73,7 +73,7 @@
         "jquery": "3.4.1",
         "jsbloom": "git://github.com/duckduckgo/jsbloom.git#1.0.2",
         "node-gyp": "^7.0.0",
-        "node-sass": "^4.14.1",
+        "node-sass": "^7.0.0",
         "normalize.scss": "0.1.0",
         "object.values": "1.0.4",
         "opn": "5.1.0",
